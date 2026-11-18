@@ -1,0 +1,68 @@
+Autonomous cooperative demo mechanisms
+
+Namespace: AutonomousCompanion.Demo
+Owner: decision_service agent. These scripts select no AI tasks.
+
+Builder wiring:
+1. DemoPressureSwitch on switch_a and switch_b, each with a trigger Collider2D.
+   Set inherited kind="switch", targetId, arrivalNode, controls IDs explicitly.
+   switch_a: latchOnPress=false, controlledDoors=[doorA].
+   switch_b: latchOnPress=true, controlledDoors=[doorA,doorB].
+   Either living actor can activate a plate through physical collider overlap.
+2. DemoDoor is both a live LocalCondition gate and collider-state controller.
+   Set blocker to its solid Collider2D. Do not make the blocker a trigger.
+   Add a separate DemoDoorTarget (kind="door", targetId="door_a"/"door_b",
+   door reference), and assign DemoDoor.observable. Leave arrivalNode null on
+   door targets: they are observed, not movement destinations inside colliders.
+3. Use doorA/doorB themselves as NavigationLink gates. A sets doorA open while
+   occupied; pressing B permanently latches both open until ResetLevel().
+4. DemoSafeReleaseCondition: latchedDoor=doorA, player reference, world reference,
+   safePlayerX beyond the right edge of doorA (-1.4 in the current layout).
+   Assign it to switch_a.safeReleaseCondition. It requires both the latch and
+   a living player beyond the door. No model action can override this condition.
+5. DemoExit targets use kind="exit", their arrival node and trigger collider.
+   requiredActor selects the proper player/companion. An incorrect actor does
+   not activate the exit. Completion requires BOTH assigned living actors to
+   physically overlap their exits during the same physics observation.
+6. DemoLevel references all actors, mechanisms, world and brain. It registers
+   the six observable targets on Start. It does not script any AI solution.
+   Actor class DemoActor is supplied by unity_companion; required API is
+   ResetActor(Vector2), StopLocomotion(), IsAlive and CompanionActorAdapter.
+
+Test API:
+DemoLevel fields: player, companion, brain, world, switchA, switchB, doorA, doorB,
+playerExit, companionExit, playerSpawn, companionSpawn.
+Read aliases: Player, Companion, Brain, SwitchA, SwitchB, DoorA, DoorB,
+PlayerExit, CompanionExit. Completed, ResetLevel(), CompletedChanged event.
+DemoPressureSwitch: Active, Occupied, Latched, CanRelease, RefreshOccupancy().
+DemoDoor: IsOpen, Latched, IsSatisfied. SetOpen is a manual/debug non-latching
+input; normal gameplay uses pressure inputs. ResetDoor clears all sources.
+DemoExit: Active, Occupied, RefreshOccupancy().
+
+ResetLevel cancels pending decisions, resets both actors and physical state,
+clears executor ownership and request generations through the brain reset hook.
+It preserves a deliberately disabled brain (fixture mode), including after
+completion. Completion freezes the executor, and reset restores its prior
+enabled state. Actor reset clears injected test input; the harness must supply
+its next human movement input explicitly after a reset.
+
+State-change events are emitted only when occupancy, latch, door, release
+condition or completion changes, not every frame. Plate/exit observations
+refresh from real overlap each physics step so teleport/reset stale trigger
+callbacks cannot leave a false occupant. Local reads still require physics
+transforms to be synchronized after an authored reset (ResetLevel does this).
+
+Core fix staged alongside this module:
+CompanionExecutor previously retained heldSwitch after physical occupancy loss.
+It then exposed only hold/wait but never restarted holding, permanently trapping
+recovery. The fix clears stale ownership after IsHolding=false and fails the
+task for replanning, without calling ReleaseHold or bypassing safe release.
+AllowedActions also exposes hold_switch only for hold-capable pressure plates,
+not move_to. Otherwise a plain movement command could activate the plate without
+establishing protected ownership. Authored routes should not pass through a
+pressure plate as an incidental intermediate waypoint to unrelated destinations.
+
+Validation status: core runtime + mechanisms + peer DemoActor passed direct
+Roslyn compilation against installed Unity 6000.6.7f1 assemblies. Editor import
+and physical play-mode checks are delegated to root/QA after installation; no
+real model or gameplay success is claimed by this module alone.
